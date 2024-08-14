@@ -4,8 +4,12 @@ import requests
 import time
 import json
 import logging
-logging.basicConfig(level=logging.INFO)
+import argparse
+import sys
+
+logging.basicConfig(level=logging.INFO,filename='reconcile.log')
 logger = logging.getLogger(__name__)
+
 
 def global_token_auth():
     global auth_token
@@ -14,7 +18,7 @@ def global_token_auth():
         auth_token
         auth_token_expiry
     except NameError:
-        logger.warning('The variables auth_token or auth_token_expiry not found; creating variables with dummy values')
+        logger.debug('The variables auth_token or auth_token_expiry not found; creating variables with dummy values')
         auth_token = 'null'
         auth_token_expiry = 0
     # Check if current epoch time is less than token expiry;
@@ -170,7 +174,7 @@ def verify_no_running_device_deletion_tasks():
         logger.error(f'Unexpected running task: {last_device_deletion_task.text}')
         SystemExit()
     else:
-        logger.info('No conflicting device deletion tasks found')
+        logger.debug('No conflicting device deletion tasks found')
 
 
 def verify_no_running_agent_install_tasks():
@@ -193,7 +197,7 @@ def verify_no_running_agent_install_tasks():
         logger.error(f'Running task: {last_agent_install_task.text}')
         SystemExit()
     else:
-        logger.info('No conflicting agent install tasks found')
+        logger.debug('No conflicting agent install tasks found')
 
 
 def retrieve_device_list():
@@ -203,16 +207,29 @@ def retrieve_device_list():
         '/mgmt/shared/pipeline/manager/BIG-IP-Devices-Pipeline',
         api_payload
     )
+    device_list = device_list.json()
+    device_removal_list = []
+    if targets == None:
+        logger.info('No targets specified -- will attempt to reimport and rediscover all BIG-IPs')
+    else:
+        logger.info(f"Narrowing scope to targets: {targets}")
+        for current_device in device_list["items"]:
+            logger.info(f"Checking device {current_device["hostname"]} against target list")
+            if current_device['hostname'] not in targets:
+                device_removal_list.append(current_device)
+        for current_device in device_removal_list:
+            device_list["items"].remove(current_device)
+            logger.warning(f"Removing device {current_device["hostname"]} from device list")
     return device_list
-
 
 def rediscover_devices(device_list):
     rediscovered_devices = []
     # Parse Devices and Re-discover/Re-import
-    for current_device in device_list.json()['items']:
+    for current_device in device_list['items']:
         logger.info(f'Attempting to rediscover {current_device['hostname']}')
         try:    # check for device trust
             device_modules_provisioned = current_device['sameDevices'][0]['properties']['cm:gui:module']
+            logger.debug(f'Reported device modules provisioned: {device_modules_provisioned}')
         except NameError as e:
             logger.error(f'Device trust is not established; aborting: {e}')
             return
@@ -230,8 +247,12 @@ def rediscover_devices(device_list):
             if key in device_modules_provisioned:
                 module_discovery_list.append({'module': value})
         # Add the shared security module if the firewall module is present
-        if ({'module':'firewall'} in module_discovery_list) and ({'module': 'security_shared'} not in module_discovery_list):
+        if ({'module': 'firewall'} in module_discovery_list) and ({'module': 'security_shared'} not in module_discovery_list):
             logger.warning(f'{current_device['hostname']} module list includes firewall but does not include security_shared; appending to module list')
+            module_discovery_list.append({'module': 'security_shared'})
+        # Add the shared security module if the asm module is present
+        if ({'module': 'asm'} in module_discovery_list) and ({'module': 'security_shared'} not in module_discovery_list):
+            logger.warning(f'{current_device['hostname']} module list includes asm but does not include security_shared; appending to module list')
             module_discovery_list.append({'module': 'security_shared'})
         logger.info(f'{current_device['hostname']} has the following modules: {module_discovery_list}')
         # Check for existing discovery tasks; skip if not discovered before; reuse existing if found
@@ -262,7 +283,8 @@ def rediscover_devices(device_list):
             logger.info(f'{current_device['hostname']} successfully rediscovered!')
             rediscovered_devices.append(current_device)
         else:
-            logger.error(f'Re-discovery did not finish successfully with task state: {executed_task_status_text}')
+            logger.error(f'Re-discovery did not finish successfully with task status: {executed_task_status_text}')
+            logger.debug(f'Failed task payload {executed_task_status.json()}')
     return rediscovered_devices
 
 
@@ -284,7 +306,7 @@ def reimport_devices(device_list):
                 },
                 'snapshotWorkingConfig': True,
                 'useBigiqSync': False,
-                'name': f'reimport-adc_core_{time.time_ns()}',
+                'name': f'reimport_{current_module}_{time.time_ns()}',
                 'globalConflictResolutionType': 'USE_BIGIP',
                 'globalDeviceConflictResolutionType': 'USE_BIGIP',
                 'globalVersionedConflictResolutionType': 'USE_BIGIP'
@@ -294,7 +316,8 @@ def reimport_devices(device_list):
                 api_payload
             )
             if (reimport_task.status_code >= 400):
-                logger.error(f'Re-import task for module {current_module['module']} on {current_device} failed! Skipping continuation of re-import!')
+                logger.error(f'Re-import task for module {current_module['module']} on {current_device} failed!')
+                logger.debug(f'Failed reponse from API: {reimport_task.text}')
             else:
                 try:
                     reimport_task_id = reimport_task.json()['id']
@@ -308,77 +331,55 @@ def reimport_devices(device_list):
                         api_params
                     )
                     reimport_task_status_text = reimport_task_status.json()['status']
-                    logger.info(f'Task status: {reimport_task_status_text}')
-                logger.info(f'Module {current_module} on {current_device} finished task with status {reimport_task_status_text}')
+                    logger.debug(f'Task status: {reimport_task_status_text}')
+                logger.info(f'Module {current_module} on {current_device['hostname']} finished task with status {reimport_task_status_text}')
 
 
-def run_discover_import_controller(device_list):
-    # Parse Devices and Re-discover/Re-import
-    for current_device in device_list.json()['items']:
-        try:    # check for device trust
-            device_modules_provisioned = current_device['sameDevices'][0]['properties']['cm:gui:module']
-        except NameError as e:
-            logger.error(f'Device trust is not established; aborting: {e}')
-            return
-        module_discovery_list = []
-        for key, value in bigip_discovery_module_mapping.items():
-            if key in device_modules_provisioned:
-                module_discovery_list.append({'module': value})
-        # Add the shared security module if the firewall module is present
-        if ({'module': 'firewall'} in module_discovery_list) and ({'module': 'security_shared'} not in module_discovery_list): 
-            logger.warning(f'{current_device['hostname']} module list includes firewall but does not include security_shared; appending to module list')
-            module_discovery_list.append({'module': 'security_shared'})
-        logger.info(f'Running device discover/import controller on {current_device['hostname']}')
-        api_payload = {
-            'name': f'discover_import_controller_task_{time.time_ns()}',
-            'operationalMode': 'EXISTING_DEVICE',
-            'conflictPolicy': 'USE_BIGIP',
-            'deviceConflictPolicy': 'USE_BIGIP',
-            'versionedConflictPolicy': 'USE_BIGIP',
-            'snapshotWorkingConfig': True,
-            'deviceDetails': [{
-                'deviceReference': {
-                    'link': current_device['selfLink']
-                },
-                'moduleList': module_discovery_list
-            }]
-        }
-        discover_import_controller_task = bigiq_http_post(
-            '/mgmt/cm/global/tasks/device-discovery-import-controller',
-            api_payload
-        )
-        discover_import_controller_task_id = discover_import_controller_task.json()['id']
-        logger.info(f'Discover/Import Controller Task: {discover_import_controller_task.text}')
-        discover_import_controller_task_status_text = discover_import_controller_task.json()['status']
-        while (discover_import_controller_task_status_text == 'STARTED'):
-            api_params = {}
-            discover_import_controller_task_status = bigiq_http_get(
-                f'/mgmt/cm/global/tasks/device-discovery-import-controller/{discover_import_controller_task_id}',
-                api_params
-            )
-            discover_import_controller_task_status_text = (
-                discover_import_controller_task_status.json()['status']
-            )
-            logger.info(f'Discovery task status for {current_device['hostname']}: {discover_import_controller_task_status_text}')
-        if discover_import_controller_task_status_text == 'FINISHED':
-            logger.info(f'{current_device['hostname']} successfully rediscovered and reimported!')
-            logger.info(f'Final output: {discover_import_controller_task_status.text}')
-        else:
-            logger.error(f'Discovery and import controller task did not finish successfully with task state: {discover_import_controller_task_status_text}')
+def parse_arguments():
+    # Create the parser
+    parser = argparse.ArgumentParser(description="Process login credentials and hostname.")
+
+    # Add arguments
+    parser.add_argument("--username", type=str, required=True, help="BIG-IQ user")
+    parser.add_argument("--password", type=str, required=True, help="password for BIG-IQ user")
+    parser.add_argument("--hostname", type=str, required=True, help="BIG-IQ host (IP/FQDN)")
+    parser.add_argument("--target", type=str, required=False, help="BIG-IP to re-import", nargs="*")
+    parser.add_argument("--targetfile", type=argparse.FileType('r'), required=False, help="plain text file with list of target BIG-IP hostnames, one host per line", nargs="?")
+    parser.add_argument("--debug", action="store_true")
+
+    # Parse arguments
+    args = parser.parse_args()
+    return args
 
 
 def main():
-    # Configure logging
-    logging.basicConfig(filename='reconcile.log', level=logging.INFO)
     # Define BIG-IQ environment variables
     global username
     global password
     global host
     global bigip_discovery_module_mapping
     global bigip_import_module_mapping
-    username = 'admin'
-    password = 'password'
-    host = 'mybigiq.example.com'
+    global targets
+    # Read command line arguments
+    args = parse_arguments()
+    if args.debug == True:
+        logging.info('Setting logging level to debug')
+        logger.setLevel(logging.DEBUG)
+    username = args.username
+    password = args.password
+    host = args.hostname
+    targets = args.target
+    targetfile = args.targetfile
+    if targetfile == None:
+        logger.debug("No target file specified - skipping")
+    else:
+        logger.info("Target file specified: {targetfile}", )
+        for entry in targetfile:
+            if targets == None:
+                targets = [entry.replace('\n','')]
+            else:
+                targets.append(entry.replace('\n',''))
+        logger.info(f"Targets found in target file: {targets}", )
     bigip_discovery_module_mapping = {
         'adc': 'adc_core',
         'networksecurity': 'firewall',
@@ -393,13 +394,15 @@ def main():
     bigip_import_module_mapping = {
         'adc': 'adc-core',
         'networksecurity': 'firewall',
+        'sslo': 'sslo',
         'sharedsecurity': 'security-shared',
         'asmsecurity': 'asm',
         'dns': 'dns',
-        'Access': 'access'
+        'fpsfraudprotectionsecurity': 'websafe',
+        'Access': 'access',
     }
     logger.debug(f'BIG-IP Import Module Mapping: {bigip_import_module_mapping}')
-    logger.info('Verifying that there are no conflicting tasks')
+    logger.debug('Verifying that there are no conflicting tasks')
     verify_no_running_device_import_tasks()
     verify_no_running_device_deletion_tasks()
     verify_no_running_agent_install_tasks()
