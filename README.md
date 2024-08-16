@@ -24,9 +24,9 @@ This Python script is designed to rediscover and re-import devices on a BIG-IQ s
   scp reconcile.py your_username@your_bigiq:/shared/scripts/
   ```
 
-2. Install Required Python Packages:
+2. **Install Required Python Packages:**
 
-Make sure that the required Python packages (requests, urllib3) are installed on your BIG-IQ system. If not, install them using pip.
+   Make sure that the required Python packages (requests, urllib3) are installed on your BIG-IQ system. If not, install them using pip.
 
     ```bash
     pip install -r requirements.txt
