@@ -20,9 +20,9 @@ This Python script is designed to rediscover and re-import devices on a BIG-IQ s
 
    Copy the Python script to the `/shared/scripts/` directory on your BIG-IQ server. This can be done using `scp` or any other file transfer method.
 
-  ```bash 
-  scp reconcile.py your_username@your_bigiq:/shared/scripts/
-  ```
+   ```bash 
+   scp reconcile.py your_username@your_bigiq:/shared/scripts/
+   ```
 
 2. **Install Required Python Packages:**
 
