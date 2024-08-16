@@ -12,9 +12,8 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def setup_logging(debug):
-    # set up logging
-    logging.basicConfig(level=logging.DEBUG if debug else logging.INFO, filename='/var/log/reconcile.log')
     logger = logging.getLogger(__name__)
+    logger.setLevel(logging.DEBUG if debug else logging.INFO)
 
     # Create a StreamHandler to log to console
     console_handler = logging.StreamHandler()
@@ -27,7 +26,13 @@ def setup_logging(debug):
     # Add the console handler to the logger
     logger.addHandler(console_handler)
 
+    # Create a FileHandler to log to a file
+    file_handler = logging.FileHandler('/var/log/reconcile.log')
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
     return logger
+
 
 def global_token_auth():
     global auth_token
@@ -62,7 +67,7 @@ def global_token_auth():
         response.raise_for_status()  # Raise an exception for bad status codes
     except requests.exceptions.RequestException as e:
         logger.error('Error making API call: {}'.format(e))
-        SystemExit()
+        sys.exit()
 
     auth_token = response.json()['token']['token']
     auth_token_expiry = response.json()['token']['exp']
@@ -151,12 +156,12 @@ def verify_no_running_device_import_tasks():
         )
     try:
         last_import_task.json()['items'][0]['status']
-    except NameError as e:
-        logger.error('Error {}'.format(e))
-        SystemExit()
+    except (KeyError, IndexError) as e:
+        logger.error('Error: {}'.format(e))
+        sys.exit(1)
     if last_import_task.json()['items'][0]['status'] == 'RUNNING':
         logger.error('Unexpected running task: {}'.format(last_import_task.text))
-        SystemExit()
+        sys.exit()
 
     # Ensure no conflicting device import tasks sorting by newest Start timestamp
     api_payload = {
@@ -170,12 +175,12 @@ def verify_no_running_device_import_tasks():
         )
     try:
         last_import_task.json()['items'][0]['status']
-    except NameError as e:
-        logger.error('Error {}'.format(e))
-        SystemExit()
+    except (KeyError, IndexError) as e:  # Use KeyError and IndexError instead of NameError
+        logger.error('Error: {}'.format(e))
+        sys.exit(1)
     if last_import_task.json()['items'][0]['status'] == 'RUNNING':
         logger.error('Unexpected running task: {}'.format(last_import_task.text))
-        SystemExit()
+        sys.exit()
     else:
         logger.info('No conflicting import tasks found')
 
@@ -192,12 +197,12 @@ def verify_no_running_device_deletion_tasks():
     )
     try:
         last_device_deletion_task.json()['items'][0]['status']
-    except NameError as e:
-        logger.error('Error {}'.format(e))
-        SystemExit()
+    except (KeyError, IndexError) as e:  # Use KeyError and IndexError instead of NameError
+        logger.error('Error: {}'.format(e))
+        sys.exit(1)
     if last_device_deletion_task.json()['items'][0]['status'] == 'RUNNING':
         logger.error('Unexpected running task: {}'.format(last_device_deletion_task.text))
-        SystemExit()
+        sys.exit()
     else:
         logger.info('No conflicting device deletion tasks found')
 
@@ -215,12 +220,12 @@ def verify_no_running_agent_install_tasks():
     )
     try:
         last_agent_install_task.json()['items'][0]['status']
-    except NameError as e:
-        logger.error('Error {}'.format(e))
-        SystemExit()
+    except (KeyError, IndexError) as e:  # Use KeyError and IndexError instead of NameError
+        logger.error('Error: {}'.format(e))
+        sys.exit(1)
     if last_agent_install_task.json()['items'][0]['status'] == 'RUNNING':
         logger.error('Running task: {}'.format(last_agent_install_task.text))
-        SystemExit()
+        sys.exit()
     else:
         logger.info('No conflicting agent install tasks found')
 
@@ -255,9 +260,9 @@ def rediscover_devices(device_list):
         try:    # check for device trust
             device_modules_provisioned = current_device['sameDevices'][0]['properties']['cm:gui:module']
             logger.info('Reported device modules provisioned: {}'.format(device_modules_provisioned))
-        except NameError as e:
-            logger.error('Device trust is not established; aborting: {}'.format(e))
-            return
+        except (KeyError, IndexError) as e:  # Use KeyError and IndexError instead of NameError
+            logger.error('Error: {}'.format(e))
+            sys.exit(1)
         # Retrieve existing discovery task for reuse
         api_params = {
             '$filter': 'deviceReference/link eq \'*{}\''.format(current_device['machineId'])
@@ -347,8 +352,8 @@ def reimport_devices(device_list):
                 try:
                     reimport_task_id = reimport_task.json()['id']
                     reimport_task_status_text = reimport_task.json()['status']
-                except NameError as e:
-                    logger.error('ERROR: {}'.format(e))
+                except (KeyError, IndexError) as e:  # Use KeyError and IndexError instead of NameError
+                    logger.error('Error: {}'.format(e))
                 while reimport_task_status_text == 'STARTED':
                     api_params = {}
                     reimport_task_status = bigiq_http_get(
@@ -356,7 +361,7 @@ def reimport_devices(device_list):
                         api_params
                     )
                     reimport_task_status_text = reimport_task_status.json()['status']
-                    logger.info('Task status: {}'.format(reimport_task_status_text))
+                    logger.debug('Task status: {}'.format(reimport_task_status_text))
                 logger.info('Module {} on {} finished task with status {}'.format(current_module, current_device['hostname'], reimport_task_status_text))
 
 
@@ -365,10 +370,10 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='Process login credentials and hostname.')
 
     # Add arguments
-    parser.add_argument('--username', type=str, required=True, help='BIG-IQ user')
-    parser.add_argument('--password', type=str, required=True, help='password for BIG-IQ user')
-    parser.add_argument('--hostname', type=str, default='localhost', help='BIG-IQ host (IP/FQDN)')
-    parser.add_argument('--target', type=str, required=False, help='BIG-IP to re-import', nargs='*')
+    parser.add_argument('--username', type=str, default='admin', help='BIG-IQ username (defaults to admin)')
+    parser.add_argument('--password', type=str, required=True, help='password for BIG-IQ')
+    parser.add_argument('--hostname', type=str, default='localhost', help='BIG-IQ host (IP/FQDN), defaults to localhost')
+    parser.add_argument('--target', type=str, required=False, help='BIG-IP(s) to re-import', nargs='*')
     parser.add_argument('--targetfile', type=argparse.FileType('r'), required=False, help='plain text file with list of target BIG-IP hostnames, one host per line', nargs='?')
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
 
@@ -402,13 +407,13 @@ def main():
     if targetfile is None:
         logger.warning('No target file specified - skipping')
     else:
-        logger.info('Target file specified: {targetfile}', )
+        logger.info('Target file specified: {}'.format(targetfile))
         for entry in targetfile:
-            if targets == None:
+            if targets is None:
                 targets = [entry.replace('\n','')]
             else:
                 targets.append(entry.replace('\n',''))
-        loggerlogger.info('Targets found in target file: {}'.format(targets))
+        logger.info('Targets found in target file: {}'.format(targets))
 
     bigip_discovery_module_mapping = {
         'adc': 'adc_core',
