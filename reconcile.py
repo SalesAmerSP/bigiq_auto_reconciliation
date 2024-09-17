@@ -155,13 +155,22 @@ def verify_no_running_device_import_tasks():
         api_payload
         )
     try:
-        last_import_task.json()['items'][0]['status']
+        task_count = last_import_task.json()['totalItems']
     except (KeyError, IndexError) as e:
         logger.error('Error: {}'.format(e))
         sys.exit(1)
-    if last_import_task.json()['items'][0]['status'] == 'RUNNING':
-        logger.error('Unexpected running task: {}'.format(last_import_task.text))
-        sys.exit()
+    if task_count >= 1:        
+        try:
+            last_import_task.json()['items'][0]['status']
+        except (KeyError, IndexError) as e:  # Use KeyError and IndexError instead of NameError
+            logger.error('Error: {}'.format(e))
+            sys.exit(1)
+        if last_import_task.json()['items'][0]['status'] == 'RUNNING':
+            logger.error('Unexpected running task: {}'.format(last_import_task.text))
+            sys.exit()
+    else:
+        logger.info('No conflicting import tasks found')
+
 
     # Ensure no conflicting device import tasks sorting by newest Start timestamp
     api_payload = {
@@ -174,13 +183,19 @@ def verify_no_running_device_import_tasks():
         api_payload
         )
     try:
-        last_import_task.json()['items'][0]['status']
-    except (KeyError, IndexError) as e:  # Use KeyError and IndexError instead of NameError
+        task_count = last_import_task.json()['totalItems']
+    except (KeyError, IndexError) as e:
         logger.error('Error: {}'.format(e))
         sys.exit(1)
-    if last_import_task.json()['items'][0]['status'] == 'RUNNING':
-        logger.error('Unexpected running task: {}'.format(last_import_task.text))
-        sys.exit()
+    if task_count >= 1:        
+        try:
+            last_import_task.json()['items'][0]['status']
+        except (KeyError, IndexError) as e:  # Use KeyError and IndexError instead of NameError
+            logger.error('Error: {}'.format(e))
+            sys.exit(1)
+        if last_import_task.json()['items'][0]['status'] == 'RUNNING':
+            logger.error('Unexpected running task: {}'.format(last_import_task.text))
+            sys.exit()
     else:
         logger.info('No conflicting import tasks found')
 
@@ -196,16 +211,21 @@ def verify_no_running_device_deletion_tasks():
         api_payload
     )
     try:
-        last_device_deletion_task.json()['items'][0]['status']
-    except (KeyError, IndexError) as e:  # Use KeyError and IndexError instead of NameError
+        task_count = last_device_deletion_task.json()['totalItems']
+    except (KeyError, IndexError) as e:
         logger.error('Error: {}'.format(e))
         sys.exit(1)
-    if last_device_deletion_task.json()['items'][0]['status'] == 'RUNNING':
-        logger.error('Unexpected running task: {}'.format(last_device_deletion_task.text))
-        sys.exit()
+    if task_count >= 1:        
+        try:
+            last_import_task.json()['items'][0]['status']
+        except (KeyError, IndexError) as e:  # Use KeyError and IndexError instead of NameError
+            logger.error('Error: {}'.format(e))
+            sys.exit(1)
+        if last_import_task.json()['items'][0]['status'] == 'RUNNING':
+            logger.error('Unexpected running task: {}'.format(last_import_task.text))
+            sys.exit()
     else:
         logger.info('No conflicting device deletion tasks found')
-
 
 def verify_no_running_agent_install_tasks():
     # Ensure no active agent install tasks
@@ -219,13 +239,19 @@ def verify_no_running_agent_install_tasks():
         api_payload
     )
     try:
-        last_agent_install_task.json()['items'][0]['status']
-    except (KeyError, IndexError) as e:  # Use KeyError and IndexError instead of NameError
+        task_count = last_agent_install_task.json()['totalItems']
+    except (KeyError, IndexError) as e:
         logger.error('Error: {}'.format(e))
         sys.exit(1)
-    if last_agent_install_task.json()['items'][0]['status'] == 'RUNNING':
-        logger.error('Running task: {}'.format(last_agent_install_task.text))
-        sys.exit()
+    if task_count >= 1:        
+        try:
+            last_agent_install_task.json()['items'][0]['status']
+        except (KeyError, IndexError) as e:  # Use KeyError and IndexError instead of NameError
+            logger.error('Error: {}'.format(e))
+            sys.exit(1)
+        if last_agent_install_task.json()['items'][0]['status'] == 'RUNNING':
+            logger.error('Unexpected running task: {}'.format(last_import_task.text))
+            sys.exit()
     else:
         logger.info('No conflicting agent install tasks found')
 
@@ -361,7 +387,7 @@ def reimport_devices(device_list):
                         api_params
                     )
                     reimport_task_status_text = reimport_task_status.json()['status']
-                    logger.info('Task status: {}'.format(reimport_task_status_text))
+                    logger.debug('Task status: {}'.format(reimport_task_status_text))
                 logger.info('Module {} on {} finished task with status {}'.format(current_module, current_device['hostname'], reimport_task_status_text))
 
 
