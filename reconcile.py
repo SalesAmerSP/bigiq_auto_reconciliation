@@ -171,7 +171,6 @@ def verify_no_running_device_import_tasks():
     else:
         logger.info('No conflicting import tasks found')
 
-
     # Ensure no conflicting device import tasks sorting by newest Start timestamp
     api_payload = {
         '$orderby': 'startDateTime desc',
@@ -240,6 +239,7 @@ def verify_no_running_agent_install_tasks():
     )
     try:
         task_count = last_agent_install_task.json()['totalItems']
+
     except (KeyError, IndexError) as e:
         logger.error('Error: {}'.format(e))
         sys.exit(1)
