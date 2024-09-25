@@ -284,7 +284,14 @@ def rediscover_devices(device_list):
     for current_device in device_list['items']:
         logger.info('Attempting to rediscover {}'.format(current_device['hostname']))
         try:    # check for device trust
-            device_modules_provisioned = current_device['sameDevices'][0]['properties']['cm:gui:module']
+            # Old line for discovering provisioned modules that falsely showed some modules as provisoned
+            # device_modules_provisioned = current_device['sameDevices'][0]['properties']['cm:gui:module']
+            # Replacement query:
+            provisioning_info = current_device['provisionInfo']
+            device_modules_provisioned = []
+            for provisioned_module in provisioning_info:
+                if provisioned_module['level'] != 'none':
+                    device_modules_provisioned.append(provisioned_module['name'])
             logger.info('Reported device modules provisioned: {}'.format(device_modules_provisioned))
         except (KeyError, IndexError) as e:  # Use KeyError and IndexError instead of NameError
             logger.error('Error: {}'.format(e))
@@ -442,14 +449,12 @@ def main():
         logger.info('Targets found in target file: {}'.format(targets))
 
     bigip_discovery_module_mapping = {
-        'adc': 'adc_core',
-        'networksecurity': 'firewall',
+        'ltm': 'adc_core',
+        'afm': 'firewall',
         'sslo': 'sslo',
-        'sharedsecurity': 'security_shared',
-        'asmsecurity': 'asm',
-        'dns': 'dns',
-        'fpsfraudprotectionsecurity': 'fps',
-        'Access': 'access'
+        'asm': 'asm',
+        'gtm': 'dns',
+        'apm': 'access'
     }
     logger.debug('BIG-IP Discovery Module Mapping: {}'.format(bigip_discovery_module_mapping))
 
