@@ -1,2 +1,6 @@
-requests==2.19.1
-urllib3==1.23
+certifi==2024.8.30
+charset-normalizer==3.3.2
+idna==3.10
+logging==0.4.9.6
+requests==2.32.3
+urllib3==2.2.3
