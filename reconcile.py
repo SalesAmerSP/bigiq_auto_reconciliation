@@ -287,7 +287,14 @@ def rediscover_devices(device_list):
             # Old line for discovering provisioned modules that falsely showed some modules as provisoned
             # device_modules_provisioned = current_device['sameDevices'][0]['properties']['cm:gui:module']
             # Replacement query:
-            provisioning_info = current_device['provisionInfo']
+
+            provisioning_info = current_device['provisioningInfo']
+            sameDevices[0].properties["cm-asm-allAsmDevices"].discovered
+            sameDevices[0].properties["cm-adccore-allbigipDevices"].discovered
+            sameDevices[0].properties["cm-dns-allBigIpDevices"].discovered
+            sameDevices[0].properties["cm-firewall-allFirewallDevices"].discovered
+            sameDevices[0].properties["cm-security-shared-allSharedDevices"].discovered
+            
             device_modules_provisioned = []
             for provisioned_module in provisioning_info:
                 if provisioned_module['level'] != 'none':
